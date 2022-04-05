@@ -1,0 +1,141 @@
+---
+title: "Subjective Well-Being Data Task"
+author: "Guillermo Ortiz"
+date: "4/4/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary
+
+Inequality has been a growing topic of discussion for economists and for society more broadly. Income inequality has received the bulk of the attention, but we may also care about inequality as is pertains to non-market goods such as ”how rewarding your life is” or ”your sense of security”. In this Data Task, I evaluate subjective measures of well-being and try to better understand them, their determinants and their implications for policy.
+
+## Loading Packages
+
+```{r}
+if(!require(tidyverse)) install.packages("tidyverse")
+library(tidyverse)
+
+if(!require(rsample)) install.packages("rsample")
+library(rsample)
+```
+
+## Question 1
+
+### a.) Load ratings.csv
+
+```{r}
+ratings <- read.csv("ratings.csv")
+```
+
+### b.) There are 1,056 unique workers and 17 unique aspects in the data set.
+
+```{r}
+#unique respondents:
+unique(ratings$worker) %>% length() #1,056 unique workers
+
+#unique aspects:
+unique(ratings$aspect) %>% length() #17 unique aspects
+```
+
+### c.) There are 211 respondents with more than 17 answers, i.e., who answered at least one aspect more than once. After including only the most recent rating for each worker-aspect, 237 observations were dropped.
+
+```{r}
+count(ratings, worker) %>% filter(n > 17) %>% nrow() #211 respondents have more than 17 answers.
+
+#total observations:
+nrow(ratings) #18,189 total observations 
+
+#unique workers times unique workers:
+1056*17 #17,952 
+
+#need to drop:
+18189-17952
+
+#drop:
+ratings_u <- ratings %>% group_by(worker, aspect) %>% filter(time==max(time)) %>% ungroup()
+
+#dropped:
+nrow(ratings)-nrow(ratings_u)
+```
+
+### d.) Report min, 25th percentile, 50th percentile, 75th percentile, and maximum subjective riches value.
+
+```{r}
+subjective_riches <- ratings %>% group_by(worker) %>% summarise(avg=mean(rating)) %>% .$avg
+summary(subjective_riches)
+```
+
+
+
+## Question 2
+
+### a.) Load demographics.csv
+
+```{r}
+demographics <- read.csv("demographics.csv")
+```
+
+### b.) Number of rows of demographics dataset = 1,056. It is the same as the number of unique respondents from question 1.
+
+```{r}
+nrow(demographics) #1,056
+nrow(demographics) == unique(ratings$worker) %>% length()
+```
+
+### c.) Merge subjective riches data with demographics data.
+
+```{r}
+demographics_m <- demographics %>% left_join(
+  ratings %>% group_by(worker) %>% 
+    summarise(subjective_riches=mean(rating)),
+  by="worker"
+)
+```
+
+### d.) Income is positively and significantly correlated with subjective riches data. An increase of 10,000 monetary units in total household income is associated with an increase of 0.92 points in the subjective riches measure.
+
+```{r}
+summary(lm(subjective_riches~income, data=demographics_m))
+```
+
+### e.) After controlling for age, gender, education and race, income is still significantly correlated with subjective riches. However, the magnitude of the association has now marginally decreased. An increase of 10,000 monetary units in total household income now is associated with an increase of 0.87 points in the subjective riches measure. In addition, it seems that men and multiracial ethnicities have, on average, higher subjective riches scores than asian women (baseline case). Education levels and other ethnicities do not seem to have significance in explaining subjective riches scores.
+
+```{r}
+summary(lm(subjective_riches~income+age+c(age^2)+male+education+race, data=demographics_m))
+```
+
+### f.) Since more people in the household generally means a higher household income, I assume that including household size as a control would erode the income variable's significance in explaining subjective riches. This is because the income variable is measured as total household income instead of average household income. In addition, there may be other variables that better explains subjective riches measures not included in the dataset.
+
+
+
+## Question 3
+
+### a.) First, I would take the average of the subjective aspects related with health, both mental and physical. Those are: "you not feeling anxious", "your health", "your mental health" and "your physical fitness". I would call "health" to that indicator and merge it with the demographics dataset. Next, I would stratify the age variable by the nearest 10 and the income variable by using its quartiles. Finally, I would calculate the health indicator's average by each age group and give it a different color for each income strata. This would make the graph a little easier to understand. 
+
+### b.) Produce and save the scatterplot.
+
+```{r}
+ratings_h <- ratings_u %>% 
+  filter(aspect%in%c("you not feeling anxious", "your health",
+                     "your mental health", "your physical fitness")) %>% 
+  group_by(worker) %>%
+  summarise(health=mean(rating)) %>% ungroup()
+
+demographics_h <- left_join(demographics_m, ratings_h,
+          by="worker")
+
+demographics_h %>% mutate(age_strata=factor(round(age,-1)),
+                          income_strata=make_strata(income)) %>% 
+  group_by(age_strata, income_strata) %>% summarise(avg_health=mean(health)) %>% 
+  ggplot(aes(age_strata,avg_health, col=income_strata)) + geom_point() +
+  scale_color_discrete(name = "Income", labels = c("Lower 25%", "Medium lower 25%", "Medium upper 25%", "Top 25%")) + 
+  ggtitle("Relationship between subjective measures of health, income & age") +
+  xlab("Age (rounded to the nearest 10)") + 
+  ylab("Subjective measure of health (average)")
+```
+
+### c.) I believe that the analysis provided in this Data Task may have helped clarify which the determinants of well-being are and, maybe, which are not. Since the proxies used for well-being in this analysis (subjective ratings) depend on several highly volatile factors (attitude of the respondent, mood of that particular day, subjective comparisons among immediate peers), they may not be the best measures of inequality to steer public policy. In fact, these subjective measures of well-being may be very highly influenced by the subjects' enviroment, thus preventing them from properly diagnose themselves nor to assess their own well being on a broader sense. This measures are not completely impractical, however, since they may be telling something about the attitudes and aptitudes of the respondents, and their receptivity to inequality reducing policies.
